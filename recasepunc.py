@@ -45,7 +45,8 @@ default_flavors = {
     'en': 'bert-base-uncased',
     'zh': 'ckiplab/bert-base-chinese',
     'tr': 'dbmdz/bert-base-turkish-uncased',
-    'de': 'dbmdz/bert-base-german-uncased',
+    #'de': 'dbmdz/bert-base-german-uncased',
+	'de': 'bert-base-german-dbmdz-uncased',
     'pt': 'neuralmind/bert-base-portuguese-cased'
 }
 
@@ -96,7 +97,7 @@ case = {
 class Model(nn.Module):
     def __init__(self, flavor, device):
         super().__init__()
-        self.bert = AutoModel.from_pretrained(flavor)
+        self.bert = AutoModel.from_pretrained(flavor, local_files_only=True)
         # need a proper way of determining representation size
         size = self.bert.dim if hasattr(self.bert, 'dim') else self.bert.config.pooler_fc_size if hasattr(self.bert.config, 'pooler_fc_size') else self.bert.config.emb_dim if hasattr(self.bert.config, 'emb_dim') else self.bert.config.hidden_size
         self.punc = nn.Linear(size, 5)
@@ -688,7 +689,7 @@ def init(config):
         tokenizer.bpe = types.MethodType(bpe, tokenizer)
     else:
         # warning: needs to be BertTokenizer for monkey patching to work
-        config.tokenizer = tokenizer = BertTokenizer.from_pretrained(config.flavor, do_lower_case=False) 
+        config.tokenizer = tokenizer = BertTokenizer.from_pretrained(config.flavor, do_lower_case=False, local_files_only=True) 
 
         # warning: monkey patch tokenizer to keep case information 
         #from recasing_tokenizer import WordpieceTokenizer
