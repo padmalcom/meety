@@ -15,6 +15,7 @@ import copy
 import sys
 from loguru import logger
 from docx import Document
+from docx.enum.text import WD_UNDERLINE
 from timeit import default_timer as timer
 from datetime import timedelta
 
@@ -24,12 +25,13 @@ from recasepunc import CasePuncPredictor
 
 # This can be a word or a sentence
 class AnnotatedSequence:
-	def __init__(self, sequence, start, end, speaker, confidence):
+	def __init__(self, sequence, start, end, speaker, confidence, min_confidence):
 		self.sequence = sequence
 		self.start = start
 		self.end = end
 		self.speaker = speaker
 		self.confidence = confidence
+		self.min_confidence = min_confidence
 		
 	def get_formated_start(self):
 		return self.timeString(self.start)
@@ -45,14 +47,14 @@ class AnnotatedSequence:
 		return '%i:%02i:%06.3f' % (hours, minutes, seconds)
 		
 	def __repr__(self):
-		return "(sequence: {}, start: {}, end: {}, speaker: {}, confidence: {}".format(self.sequence, self.get_formated_start(), self.get_formated_end(), self.speaker, self.confidence)
+		return "(sequence: {}, start: {}, end: {}, speaker: {}, confidence: {}, min_confidence: {}".format(self.sequence, self.get_formated_start(), self.get_formated_end(), self.speaker, self.confidence, self.min_confidence)
 
 class Transcriber:
 	
 	def __init__(self):
 		vosk.SetLogLevel(-2)
-		#model_path = 'vosk-model-small-de-0.15'
-		model_path = 'vosk-model-de-0.21'
+		model_path = 'vosk-model-small-de-0.15'
+		#model_path = 'vosk-model-de-0.21'
 		spk_model_path = 'vosk-model-spk-0.4'
 		self.COSINE_DIST = 0.8
 		self.UNDETECTED_SPEAKER = "undetected speaker"
@@ -153,7 +155,7 @@ class Transcriber:
 			if not words:
 				continue
 			for w in words:
-				word_results.append(AnnotatedSequence(w['word'], w['start'], w['end'], None, w['conf']))
+				word_results.append(AnnotatedSequence(w['word'], w['start'], w['end'], None, w['conf'], w['conf']))
 				logger.trace("Found new word {}.", word_results[len(word_results)-1])
 				full_text += ' ' + w['word']
 				
@@ -199,11 +201,15 @@ class Transcriber:
 			words_in_sentence = [token.text for token in nlp(rts)]
 			end_index = self.best_sentence_fit(words, word_index, words_in_sentence)
 			confidences = [x.confidence for x in words[word_index:end_index]]
-			avg_conf = sum(confidences) / (len(confidences) + 0.00000001)
+			avg_conf = 0
+			min_conf = 0
+			if len(confidences):
+				avg_conf = sum(confidences) / (len(confidences) + 0.00000001)
+				min_conf = min(confidences)
 			
 			#print("Lenth {}, start_index {}, end_index {}".format(len(words), word_index, end_index))
 			
-			sentences.append(AnnotatedSequence(rts, words[word_index].start, words[end_index].end, None, avg_conf))
+			sentences.append(AnnotatedSequence(rts, words[word_index].start, words[end_index].end, None, avg_conf, min_conf))
 			word_index = end_index + 1
 		return sentences
 		
@@ -225,8 +231,12 @@ class Transcriber:
 				continue
 		
 			if anse.speaker != current_speaker and len(current_sentence) > 0:
-				avg_conf = sum(confidences) / (len(confidences) + 0.00000001)
-				results.append(AnnotatedSequence(current_sentence, current_start, current_end, current_speaker, avg_conf))
+				avg_conf = 0
+				min_conf = 0			
+				if len(confidences):
+					avg_conf = sum(confidences) / (len(confidences) + 0.00000001)
+					min_conf = min(confidences)
+				results.append(AnnotatedSequence(current_sentence, current_start, current_end, current_speaker, avg_conf, min_conf))
 				current_speaker = anse.speaker
 				current_sentence = anse.sequence
 				current_start = anse.start
@@ -240,8 +250,12 @@ class Transcriber:
 		
 		# Add last item if not empty
 		if len(current_sentence) > 0:
-			avg_conf = sum(confidences) / (len(confidences) + 0.00000001)
-			results.append(AnnotatedSequence(current_sentence, current_start, current_end, current_speaker, avg_conf))
+			avg_conf = 0
+			min_conf = 0		
+			if len(confidences):
+				avg_conf = sum(confidences) / (len(confidences) + 0.00000001)
+				min_conf = min(confidences)		
+			results.append(AnnotatedSequence(current_sentence, current_start, current_end, current_speaker, avg_conf, min_conf))
 				
 		return results
 		
@@ -280,11 +294,21 @@ class Transcriber:
 		document = Document()
 		document.add_heading('Meeting', 0)
 		
+		#p = None
+		#last_speaker = None
 		for anse in annotated_sentences:
+		#	if anse.speaker != last_speaker or p == None:
+		#		p = document.add_paragraph('')
+		#		p.add_run(anse.speaker + ":").bold = True
+
+		#	if anse.min_confidence < 0.5:
+		#		p.add_run(' ' + anse.sequence).underline = WD_UNDERLINE.WAVY
+		#	else:
+		#		p.add_run(' ' + anse.sequence).underline = False
+		#	last_speaker = anse.speaker
 			p = document.add_paragraph('')
-			p.add_run(anse.speaker + ": ").bold = True
-			p.add_run(anse.sequence)
-			
+			p.add_run(anse.speaker + ":").bold = True
+			p.add_run(' ' + anse.sequence)
 		document.save(out_file)
 			
 if __name__ == '__main__':
@@ -293,9 +317,9 @@ if __name__ == '__main__':
 	
 	start = timer()
 	t = Transcriber()
-	#audio_file = "meeting4.wav"
-	#audio_file = "CIH_Test.mp3"
-	audio_file = "KIFürDieBundeswehr.mp3"
+	#audio_file = "meeting3.wav"
+	audio_file = "CIH_Test.mp3"
+	#audio_file = "KIFürDieBundeswehr.mp3"
 	
 	logger.info("Fixing audio file...")
 	fixed_audio_file = t.fix_audio(audio_file)
@@ -314,11 +338,12 @@ if __name__ == '__main__':
 	logger.info("Getting speakers for each sentences...")
 	sentences_with_speakers = t.get_speakers_from_sentences(sentences, fixed_audio_file)
 	
-	logger.info("Merging sequences where possible...")
+	#logger.info("Merging sequences where possible...")
 	merged_sentences = t.merge_sentences(sentences_with_speakers)
 	
 	logger.info("Writing document...")
 	file_name, file_extension = os.path.splitext(audio_file)
+	#t.write_docx(sentences_with_speakers, "{}.docx".format(file_name))
 	t.write_docx(merged_sentences, "{}.docx".format(file_name))
 	
 	os.remove(fixed_audio_file)
