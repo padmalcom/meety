@@ -18,6 +18,7 @@ from docx import Document
 from docx.enum.text import WD_UNDERLINE
 from timeit import default_timer as timer
 from datetime import timedelta
+from transformers import pipeline
 
 import streamlit as st
 
@@ -72,6 +73,9 @@ class Transcriber:
 		
 		punc_predict_path = os.path.abspath('vosk-recasepunc-de-0.21\\checkpoint')
 		self.casePuncPredictor = CasePuncPredictor(punc_predict_path, lang="de")
+		
+		self.summarizer = pipeline("summarization", model="ml6team/mt5-small-german-finetune-mlsum", tokenizer="ml6team/mt5-small-german-finetune-mlsum")
+
 		logger.info("Initialization done.")
 		
 	def repair_text(self, text):
@@ -292,28 +296,36 @@ class Transcriber:
 		audio.export(file_name, format='wav', bitrate="64k")
 		return file_name
 		
-	def write_docx(self, annotated_sentences, out_file):
+	def write_docx(self, title, annotated_sentences, out_file):
 		document = Document()
 		document.add_heading('Meeting', 0)
 		
-		#p = None
-		#last_speaker = None
+		p = None
+		last_speaker = None
 		for anse in annotated_sentences:
-		#	if anse.speaker != last_speaker or p == None:
-		#		p = document.add_paragraph('')
-		#		p.add_run(anse.speaker + ":").bold = True
+			if anse.speaker != last_speaker or p == None:
+				p = document.add_paragraph('')
+				if show_timestamp:
+					p.add_run("[{} - {}] {}:".format(anse.start, anse.end, anse.speaker)).bold = True
+				else:
+					p.add_run("{}:".format(anse.speaker)).bold = True
 
-		#	if anse.min_confidence < 0.5:
-		#		p.add_run(' ' + anse.sequence).underline = WD_UNDERLINE.WAVY
-		#	else:
-		#		p.add_run(' ' + anse.sequence).underline = False
-		#	last_speaker = anse.speaker
-			p = document.add_paragraph('')
-			p.add_run(anse.speaker + ":").bold = True
-			p.add_run(' ' + anse.sequence)
+			if underline_uncertainties and anse.min_confidence < 0.5:
+				p.add_run(' ' + anse.sequence).underline = WD_UNDERLINE.WAVY
+			else:
+				p.add_run(' ' + anse.sequence).underline = False
+								
+			last_speaker = anse.speaker
+
 		document.save(out_file)
 		
-def create_transcript(temp_file_name, original_file_name, original_file_extension, show_log):
+	def summarize(self, text):
+		min_length = max(5, int(len(text) * 0.1))
+		max_length = min(200, int(len(text) * 0.5))
+		s = self.summarizer(text, min_length=min_length, max_length=max_length)
+		return s[0]['summary_text']
+		
+def create_transcript(temp_file_name, original_file_name, original_file_extension, show_log, summary, underline_uncertainties, show_timestamp):
 	start = timer()
 	t = Transcriber()
 	audio_file = temp_file_name
@@ -321,51 +333,98 @@ def create_transcript(temp_file_name, original_file_name, original_file_extensio
 	placeholder = st.empty()
 	
 	if show_log:
-		text += "Fixing audio file...  \n"
-		placeholder.markdown(text)
+		end = timer()
+		text += "- __[{}]__ Preparing audio file... :speaker:  \n".format(timedelta(seconds=end-start))
+		placeholder.info(text)
 	fixed_audio_file = t.fix_audio(audio_file)
 	
 	if show_log:
-		text += "Extracting full text from {}...  \n".format(fixed_audio_file)
-		placeholder.markdown(text)
+		end = timer()
+		text += "- __[{}]__ Extracting full text from prepared file {}...  \n".format(timedelta(seconds=end-start), fixed_audio_file)
+		placeholder.info(text)
 	annotated_words, full_text = t.get_words_from_text(fixed_audio_file)
-	if show_log:
-		text += "Found {} words and text with length {}.  \n".format(len(annotated_words), len(full_text))
-		placeholder.markdown(text)
 	
 	if show_log:
-		text += "Spell checking and correcting text...  \n"
-		placeholder.markdown(text)
+		end = timer()
+		text += "- __[{}]__ Found **{} words** and text with **length {}** :newspaper:.  \n".format(timedelta(seconds=end-start), len(annotated_words), len(full_text))
+		placeholder.info(text)
+	
+	if show_log:
+		end = timer()
+		text += "- __[{}]__ Spell checking and correcting text...  \n".format(timedelta(seconds=end-start))
+		placeholder.info(text)
 	repaired_text = t.repair_text(full_text)	
-	if show_log:
-		text += "Repaired text is {}.  \n".format(repaired_text)
-		placeholder.markdown(text)
 	
 	if show_log:
-		text += "Calculating timestamps for corrected sentences...  \n"
-		placeholder.markdown(text)
+		end = timer()
+		text += "- __[{}]__ Text has been corrected by a highly over-qualified monkey :monkey_face:  \n".format(timedelta(seconds=end-start), repaired_text)
+		placeholder.info(text)
+	
+	if show_log:
+		end = timer()
+		text += "- __[{}]__ Calculating timestamps for corrected sentences... :watch:  \n".format(timedelta(seconds=end-start))
+		placeholder.info(text)
 	sentences = t.get_sentences(annotated_words, repaired_text)
 	
 	if show_log:
-		text += "Getting speakers for each sentences...  \n"
-		placeholder.markdown(text)
+		end = timer()
+		text += "- __[{}]__ Getting speakers for each sentences... :speech_balloon:  \n".format(timedelta(seconds=end-start))
+		placeholder.info(text)
 	sentences_with_speakers = t.get_speakers_from_sentences(sentences, fixed_audio_file)
 	
-	if show_log:
-		text += "Merging sequences where possible...  \n"
-		placeholder.markdown(text)
-	merged_sentences = t.merge_sentences(sentences_with_speakers)
+	summarization = ""
+	if summary:
+		full_text = ' '.join([swp.sequence for swp in sentences_with_speakers])
+		summarization = t.summarize(full_text)
+		st.markdown("**tl;dr:** {}".format(summarization))
+	#if show_log:
+	#	end = timer()
+	#	text += "- __[{}]__ Merging sequences where possible...  \n".format(timedelta(seconds=end-start))
+	#	placeholder.info(text)
+	#merged_sentences = t.merge_sentences(sentences_with_speakers)
 	
+	# Write output
+	#for anse in merged_sentences:
+	#	st.markdown("**{}**: {}".format(anse.speaker, anse.sequence))
+	
+	last_speaker = None
+	output_text = ""
+	for anse in sentences_with_speakers:
+		if anse.speaker != last_speaker:
+			if len(output_text) > 0:
+				st.markdown(output_text)
+				output_text = ""
+			if show_timestamp:
+				output_text += "[{} - {}] **{}**: ".format(anse.start, anse.end, anse.speaker)
+			else:
+				output_text += "**{}**: ".format(anse.speaker)
+				
+		if underline_uncertainties and anse.min_confidence < 0.6:
+			output_text += ' _' + anse.sequence + '_'
+		else:
+			output_text += ' _' + anse.sequence + '_'
+		last_speaker = anse.speaker
+	if len(output_text) > 0:
+		st.markdown(output_text)
+			
 	if show_log:
-		text += "Writing output...  \n"
-		placeholder.markdown(text)
+		end = timer()
+		text += "- __[{}]__ Writing output... :pencil2:  \n".format(timedelta(seconds=end-start))
+		placeholder.info(text)
 	file_name, file_extension = os.path.splitext(audio_file)
 	
 	os.remove(fixed_audio_file)
 	
 	end = timer()
-	text += "Done in {}  \n".format(timedelta(seconds=end-start))
-	placeholder.markdown(text)
+	
+	st.success("Done in {}  \n".format(timedelta(seconds=end-start)))
+	
+	# generate docx
+	docx_filename = original_file_name + ".docx"
+	t.write_docx(original_file_name, sentences_with_speakers, docx_filename)
+	with open(docx_filename, 'rb') as f:
+		st.download_button('Download Trankript (*.docx)', f, file_name=docx_filename)
+	st.balloons()
 	
 			
 if __name__ == '__main__':
@@ -377,8 +436,11 @@ if __name__ == '__main__':
 	
 	st.markdown("Diese Anwendung hilft dir, Meetings automatisiert zu verschriftlichen und dabei zwischen verschiedenen Sprechnern zu unterscheiden. Neugierig geworden? Probier es mal aus!")
 	
-	summary = st.checkbox("Generiere eine Zusammenfassung des Meetings.", disabled=True)
-	show_log = st.checkbox("Zeig mir was genau du machst!", value=False)
+	summary = st.checkbox("Generiere eine Zusammenfassung des Meetings.", value=True)
+	underline_uncertainties = st.checkbox("Schreibe Sätze mit hoher Ungewissheit kursiv.", value=True)
+	show_timestamp = st.checkbox("Zeige Zeitstempel der Sätze.", value=True)
+	
+	show_log = st.checkbox("Zeig mir was genau du machst!", value=True)
 		
 	temp_file_name = ""
 	original_file_name = ""
@@ -398,5 +460,5 @@ if __name__ == '__main__':
 			st.success("Datei {} erfolgreich hochgeladen.".format(uploaded_file.name))		
 
 			
-			st.button("Erstelle Transkript", on_click=create_transcript, args=(temp_file_name, original_file_name, original_file_extension, show_log, ))
+			st.button("Erstelle Transkript", on_click=create_transcript, args=(temp_file_name, original_file_name, original_file_extension, show_log, summary, underline_uncertainties, show_timestamp, ))
 		
