@@ -21,6 +21,7 @@ from datetime import timedelta
 from transformers import pipeline
 
 import streamlit as st
+from stqdm import stqdm
 
 from recasepunc import CasePuncPredictor
 
@@ -54,10 +55,13 @@ class AnnotatedSequence:
 
 class Transcriber:
 	
-	def __init__(self):
+	def __init__(self, voice_model="klein und schnell"):
 		vosk.SetLogLevel(-2)
-		model_path = 'vosk-model-small-de-0.15'
-		#model_path = 'vosk-model-de-0.21'
+		
+		if voice_model == "klein und schnell":
+			model_path = 'vosk-model-small-de-0.15'
+		else:
+			model_path = 'vosk-model-de-0.21'
 		spk_model_path = 'vosk-model-spk-0.4'
 		self.COSINE_DIST = 0.8
 		self.UNDETECTED_SPEAKER = "undetected speaker"
@@ -74,7 +78,8 @@ class Transcriber:
 		punc_predict_path = os.path.abspath('vosk-recasepunc-de-0.21\\checkpoint')
 		self.casePuncPredictor = CasePuncPredictor(punc_predict_path, lang="de")
 		
-		self.summarizer = pipeline("summarization", model="ml6team/mt5-small-german-finetune-mlsum", tokenizer="ml6team/mt5-small-german-finetune-mlsum")
+		#self.summarizer = pipeline("summarization", model="ml6team/mt5-small-german-finetune-mlsum", tokenizer="ml6team/mt5-small-german-finetune-mlsum")
+		self.summarizer = pipeline("summarization", model="T-Systems-onsite/mt5-small-sum-de-en-v2", tokenizer="T-Systems-onsite/mt5-small-sum-de-en-v2")
 
 		logger.info("Initialization done.")
 		
@@ -145,7 +150,7 @@ class Transcriber:
 		self.rec = vosk.KaldiRecognizer(self.model, self.sample_rate, self.spk_model)
 		self.rec.SetWords(True)
 		wf = wave.open(audio_file, "rb")
-		for i in tqdm(range(0, math.ceil(wf.getnframes() / 4000))):
+		for i in stqdm(range(0, math.ceil(wf.getnframes() / 4000)), desc="Erkenne Audiosequenz..."):
 		#while True:
 		   data = wf.readframes(4000)
 		   if len(data) == 0:
@@ -268,7 +273,7 @@ class Transcriber:
 		
 	def get_speakers_from_sentences(self, annotated_sentences, audio_file):
 		results = []
-		for s in tqdm(annotated_sentences):
+		for s in stqdm(annotated_sentences, desc="Erkenne Sprecher..."):
 			logger.debug("Getting speaker for {}.", s)
 			speaker_name, distance = self.get_speaker_from_audio_segment(audio_file, s.start, s.end)
 			logger.debug("Found speaker {}.", speaker_name)
@@ -298,7 +303,7 @@ class Transcriber:
 		
 	def write_docx(self, title, annotated_sentences, out_file):
 		document = Document()
-		document.add_heading('Meeting', 0)
+		document.add_heading(title, 0)
 		
 		p = None
 		last_speaker = None
@@ -320,14 +325,14 @@ class Transcriber:
 		document.save(out_file)
 		
 	def summarize(self, text):
-		min_length = max(5, int(len(text) * 0.1))
-		max_length = min(200, int(len(text) * 0.5))
+		min_length = max(5, int(len(text) * 0.05))
+		max_length = min(200, int(len(text) * 0.3))
 		s = self.summarizer(text, min_length=min_length, max_length=max_length)
 		return s[0]['summary_text']
 		
-def create_transcript(temp_file_name, original_file_name, original_file_extension, show_log, summary, underline_uncertainties, show_timestamp):
+def create_transcript(temp_file_name, original_file_name, original_file_extension, show_log, summary, underline_uncertainties, show_timestamp, ai_strong):
 	start = timer()
-	t = Transcriber()
+	t = Transcriber(voice_model=ai_strong)
 	audio_file = temp_file_name
 	text = ""
 	placeholder = st.empty()
@@ -374,18 +379,14 @@ def create_transcript(temp_file_name, original_file_name, original_file_extensio
 	
 	summarization = ""
 	if summary:
+		end = timer()
+		text += "- __[{}]__ Summarizing...  \n".format(timedelta(seconds=end-start))
+		placeholder.info(text)
+		
 		full_text = ' '.join([swp.sequence for swp in sentences_with_speakers])
 		summarization = t.summarize(full_text)
 		st.markdown("**tl;dr:** {}".format(summarization))
-	#if show_log:
-	#	end = timer()
-	#	text += "- __[{}]__ Merging sequences where possible...  \n".format(timedelta(seconds=end-start))
-	#	placeholder.info(text)
-	#merged_sentences = t.merge_sentences(sentences_with_speakers)
-	
-	# Write output
-	#for anse in merged_sentences:
-	#	st.markdown("**{}**: {}".format(anse.speaker, anse.sequence))
+
 	
 	last_speaker = None
 	output_text = ""
@@ -439,6 +440,7 @@ if __name__ == '__main__':
 	summary = st.checkbox("Generiere eine Zusammenfassung des Meetings.", value=True)
 	underline_uncertainties = st.checkbox("Schreibe Sätze mit hoher Ungewissheit kursiv.", value=True)
 	show_timestamp = st.checkbox("Zeige Zeitstempel der Sätze.", value=True)
+	ai_strong = st.radio("Starke KI nutzen (langsamer, aber genauer)?", ('groß und langsam', 'klein und schnell'), index=1)
 	
 	show_log = st.checkbox("Zeig mir was genau du machst!", value=True)
 		
@@ -460,5 +462,5 @@ if __name__ == '__main__':
 			st.success("Datei {} erfolgreich hochgeladen.".format(uploaded_file.name))		
 
 			
-			st.button("Erstelle Transkript", on_click=create_transcript, args=(temp_file_name, original_file_name, original_file_extension, show_log, summary, underline_uncertainties, show_timestamp, ))
+			st.button("Erstelle Transkript", on_click=create_transcript, args=(temp_file_name, original_file_name, original_file_extension, show_log, summary, underline_uncertainties, show_timestamp, ai_strong, ))
 		
