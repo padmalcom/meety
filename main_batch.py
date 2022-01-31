@@ -19,6 +19,8 @@ from docx.enum.text import WD_UNDERLINE
 from timeit import default_timer as timer
 from datetime import timedelta
 
+import streamlit as st
+
 from recasepunc import CasePuncPredictor
 
 # todo set tags in text block
@@ -315,39 +317,48 @@ if __name__ == '__main__':
 	logger.remove()
 	logger.add(sys.stderr, level="INFO")
 	
-	start = timer()
-	t = Transcriber()
-	#audio_file = "meeting3.wav"
-	audio_file = "CIH_Test.mp3"
-	#audio_file = "KIFürDieBundeswehr.mp3"
+	st.title("Meety - Herzlichen Willkommen!")
+	st.header("AI-basierte Audiotranskription für Web-Konferenzen")
 	
-	logger.info("Fixing audio file...")
-	fixed_audio_file = t.fix_audio(audio_file)
+	st.markdown("Diese Anwendung hilft dir, Meetings automatisiert zu verschriftlichen und dabei zwischen verschiedenen Sprechnern zu unterscheiden. Neugierig geworden? Probier es mal aus!")
 	
-	logger.info("Extracting full text from {}...", fixed_audio_file)
-	annotated_words, full_text = t.get_words_from_text(fixed_audio_file)
-	logger.info("Found {} words and text with length {}.", len(annotated_words), len(full_text))
-	
-	logger.info("Spell checking and correcting text...")
-	repaired_text = t.repair_text(full_text)	
-	logger.debug("Repaired text is {}.", repaired_text)
-	
-	logger.info("Calculating timestamps for corrected sentences...")
-	sentences = t.get_sentences(annotated_words, repaired_text)
-	
-	logger.info("Getting speakers for each sentences...")
-	sentences_with_speakers = t.get_speakers_from_sentences(sentences, fixed_audio_file)
-	
-	#logger.info("Merging sequences where possible...")
-	merged_sentences = t.merge_sentences(sentences_with_speakers)
-	
-	logger.info("Writing document...")
-	file_name, file_extension = os.path.splitext(audio_file)
-	#t.write_docx(sentences_with_speakers, "{}.docx".format(file_name))
-	t.write_docx(merged_sentences, "{}.docx".format(file_name))
-	
-	os.remove(fixed_audio_file)
-	
-	end = timer()
-	logger.info("Done in {}", timedelta(seconds=end-start))
+	uploaded_file = st.file_uploader("Wählen eine Audiodatei", type=['wav', 'mp3'])
+	if uploaded_file is not None:
+		bytes_data = uploaded_file.getvalue()
+
+		start = timer()
+		t = Transcriber()
+		#audio_file = "meeting3.wav"
+		audio_file = "CIH_Test.mp3"
+		#audio_file = "KIFürDieBundeswehr.mp3"
+		
+		logger.info("Fixing audio file...")
+		fixed_audio_file = t.fix_audio(audio_file)
+		
+		logger.info("Extracting full text from {}...", fixed_audio_file)
+		annotated_words, full_text = t.get_words_from_text(fixed_audio_file)
+		logger.info("Found {} words and text with length {}.", len(annotated_words), len(full_text))
+		
+		logger.info("Spell checking and correcting text...")
+		repaired_text = t.repair_text(full_text)	
+		logger.debug("Repaired text is {}.", repaired_text)
+		
+		logger.info("Calculating timestamps for corrected sentences...")
+		sentences = t.get_sentences(annotated_words, repaired_text)
+		
+		logger.info("Getting speakers for each sentences...")
+		sentences_with_speakers = t.get_speakers_from_sentences(sentences, fixed_audio_file)
+		
+		#logger.info("Merging sequences where possible...")
+		merged_sentences = t.merge_sentences(sentences_with_speakers)
+		
+		logger.info("Writing document...")
+		file_name, file_extension = os.path.splitext(audio_file)
+		#t.write_docx(sentences_with_speakers, "{}.docx".format(file_name))
+		t.write_docx(merged_sentences, "{}.docx".format(file_name))
+		
+		os.remove(fixed_audio_file)
+		
+		end = timer()
+		logger.info("Done in {}", timedelta(seconds=end-start))
 	
