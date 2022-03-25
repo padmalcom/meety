@@ -1,22 +1,22 @@
-import sys
+import argparse
 import collections
 import os
+import pickle
+import random
+import sys
+import unicodedata
+
+import numpy as np
 import regex as re
-#from mosestokenizer import *
-from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import random
-import unicodedata
-import numpy as np
-import argparse
 from torch.utils.data import TensorDataset, DataLoader
-
+# from mosestokenizer import *
+from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer, BertTokenizer
 
-import pickle
 
 class Custompickler():
     class Unpickler(pickle.Unpickler):
@@ -25,6 +25,7 @@ class Custompickler():
                 return WordpieceTokenizer
             return super().find_class(module, name)
 
+# This isn't really used by code and quite confusing
 default_config = argparse.Namespace(
     seed=871253,
     lang='de',
@@ -40,14 +41,14 @@ default_config = argparse.Namespace(
     debug=False
 )
 
+# This isn't really used by code and quite confusing
 default_flavors = {
     'fr': 'flaubert/flaubert_base_uncased',
     'en': 'bert-base-uncased',
     'zh': 'ckiplab/bert-base-chinese',
     'tr': 'dbmdz/bert-base-turkish-uncased',
-    #'de': 'dbmdz/bert-base-german-uncased',
-	'de': 'bert-base-german-dbmdz-uncased',
-    'pt': 'neuralmind/bert-base-portuguese-cased'
+    'de': 'dbmdz/bert-base-german-uncased',
+	'pt': 'neuralmind/bert-base-portuguese-cased'
 }
 
 class Config(argparse.Namespace):
@@ -62,7 +63,7 @@ class Config(argparse.Namespace):
         if 'lang' in kwargs and ('flavor' not in kwargs or kwargs['flavor'] is None):
             self.flavor = default_flavors[self.lang]
 
-        #print(self.lang, self.flavor)
+        print(self.lang, self.flavor)
     
 
 def init_random(seed):
@@ -283,6 +284,11 @@ class CasePuncPredictor:
         loaded = torch.load(checkpoint_path, map_location=device if torch.cuda.is_available() else 'cpu', pickle_module=Custompickler)
         if 'config' in loaded:
             self.config = Config(**loaded['config'])
+            print(f"Config comes from model: {self.config}")
+            # TODO:
+            # we get flavor = 'dbmdz/bert-base-german-uncased' from checkpoint and code is expecting this folder to
+            # exist here on same level... Change path to more general prefix here, e.g.
+            # self.config.flavor=os.path.join(model_path_prefix, dbmdz/bert-base-german-uncased)
         else:
             self.config = Config(lang=lang, flavor=flavor, device=device)
         init(self.config)
@@ -689,7 +695,11 @@ def init(config):
         tokenizer.bpe = types.MethodType(bpe, tokenizer)
     else:
         # warning: needs to be BertTokenizer for monkey patching to work
-        config.tokenizer = tokenizer = BertTokenizer.from_pretrained(config.flavor, do_lower_case=False, local_files_only=True) 
+        #print(config.flavor)
+        # Here we force code to reference local download of bert-base-german-uncased instead of getting it online!
+        config.flavor = 'model/bert-base-german-uncased/'
+        config.tokenizer = tokenizer = BertTokenizer.from_pretrained(config.flavor, do_lower_case=False,
+                                                                     local_files_only=True)
 
         # warning: monkey patch tokenizer to keep case information 
         #from recasing_tokenizer import WordpieceTokenizer
