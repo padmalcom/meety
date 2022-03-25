@@ -1,32 +1,29 @@
-import vosk
-import wave
-import json
-from pydub import AudioSegment
-from datetime import datetime
-import os
-import numpy as np
-import pandas as pd
-from spacy.lang.de import German
-from tqdm import tqdm
-import math
-from spacy.lang.de import German 
-from difflib import SequenceMatcher
 import copy
+import json
+import math
+import os
 import sys
-from loguru import logger
+import textwrap
+import wave
+from datetime import datetime
+from datetime import timedelta
+from difflib import SequenceMatcher
+from timeit import default_timer as timer
+
+import numpy as np
+import streamlit as st
+import vosk
 from docx import Document
 from docx.enum.text import WD_UNDERLINE
-from timeit import default_timer as timer
-from datetime import timedelta
-from transformers import pipeline
-
-from webvtt import WebVTT, Caption
-import textwrap
-
-import streamlit as st
+from loguru import logger
+from pydub import AudioSegment
+from spacy.lang.de import German
 from stqdm import stqdm
+from transformers import pipeline
+from webvtt import WebVTT, Caption
 
 from recasepunc import CasePuncPredictor
+
 
 # todo set tags in text block
 
@@ -62,10 +59,10 @@ class Transcriber:
 		vosk.SetLogLevel(-2)
 		
 		if voice_model == "klein und schnell":
-			model_path = 'vosk-model-small-de-0.15'
+			model_path = 'model/vosk-model-small-de-0.15'
 		else:
 			model_path = 'vosk-model-de-0.21'
-		spk_model_path = 'vosk-model-spk-0.4'
+		spk_model_path = 'model/vosk-model-spk-0.4'
 		self.COSINE_DIST = 0.4
 		self.UNDETECTED_SPEAKER = "undetected speaker"
 		self.UNKNOWN_SPEAKER = "unknown speaker"
@@ -79,11 +76,15 @@ class Transcriber:
 		self.speakers["fabian"] = [-0.797457, 0.893783, -0.458962, 0.439499, 0.121801, 0.269168, -0.605457, -0.07904, 1.278862, -0.47834, 2.048105, -1.236233, 0.979613, -0.267615, 0.159861, 0.055959, -0.256166, 1.260095, 2.314549, -2.207093, -0.710628, -0.170672, 0.320985, -0.492729, 0.395429, 0.310763, -0.650441, -0.726839, 1.783956, -0.514899, -0.771253, -1.798682, -1.846042, 0.154697, 0.979613, 0.138115, 0.229337, 0.092984, -0.169231, 0.498774, -1.416122, 0.110558, 0.30648, -0.467408, 0.496537, -2.26419, 0.428986, -1.017538, 1.711265, 0.492168, -0.702733, -0.271146, -0.805249, 0.425988, 1.871118, 0.590559, 0.250679, 0.898046, 1.574314, 1.043915, -0.886984, 0.12249, 1.196055, 1.362341, 0.738961, 1.07415, 0.256881, 1.817265, -0.546605, -0.569249, -0.469055, 0.563007, -1.593265, 1.247733, 1.711871, -0.320994, -0.566991, -2.293762, 1.308869, 1.3637, -0.170194, 0.640718, -0.016229, -0.805548, -0.511637, 0.785791, -1.111833, -0.521746, -0.939944, 1.332535, 0.793953, -0.004191, -0.06619, -1.196705, 0.919897, 0.844841, 0.471952, 0.559364, 1.94756, -1.286218, -0.334231, -2.265524, 0.673755, 0.234436, -0.412774, 0.885559, 1.116514, 2.089988, -1.357796, -0.271067, 0.642276, 0.949255, 0.347166, -0.594057, 1.056821, 0.960383, -1.361658, -0.283667, -0.764461, 0.674468, -0.529306, -0.359495, 0.656774, -0.703565, 0.369017, 0.894422, -1.642501, 0.963191]
 		self.new_speaker_index = 0
 		
-		punc_predict_path = os.path.abspath('vosk-recasepunc-de-0.21/checkpoint')
+		punc_predict_path = os.path.abspath('model/vosk-recasepunc-de-0.21/checkpoint')
 		self.casePuncPredictor = CasePuncPredictor(punc_predict_path, lang="de")
 		
 		#self.summarizer = pipeline("summarization", model="ml6team/mt5-small-german-finetune-mlsum", tokenizer="ml6team/mt5-small-german-finetune-mlsum")
-		self.summarizer = pipeline("summarization", model="T-Systems-onsite/mt5-small-sum-de-en-v2", tokenizer="T-Systems-onsite/mt5-small-sum-de-en-v2")
+		#self.summarizer = pipeline("summarization", model="T-Systems-onsite/mt5-small-sum-de-en-v2",
+		# tokenizer="T-Systems-onsite/mt5-small-sum-de-en-v2")
+
+		self.summarizer = pipeline("summarization", model="model/mt5-small-sum-de-en-v2", 
+								   tokenizer="model/mt5-small-sum-de-en-v2")
 
 		logger.info("Initialization done.")
 		
